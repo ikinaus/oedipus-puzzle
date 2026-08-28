@@ -236,6 +236,7 @@ if __name__ == "__main__":
     # 3x3: full traversal of the component containing the goal
     component = explore(goal(3), neighbors)
     assert len(component) == factorial(9) // 2 == 181_440
+    print(f"vertices              :    {len(component)}   = 9!/2")
     assert {parity_class(b) for b in component} == {parity_class(goal(3))}
 
     # the other class is exactly the complement, and is the same size
