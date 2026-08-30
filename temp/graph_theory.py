@@ -174,6 +174,9 @@ if __name__ == "__main__":
     print(f"mean degree                  : {total4}/{n * n} = {total4 / (n * n):.4f}")
 
 # %%
+print(f"{'#'*60}\n{'#'*60}")
+
+# %%
 def inversions(board: Board) -> int:
     """Number of inversions"""
     tiles = [v for row in board for v in row if v != BLANK]
@@ -255,3 +258,136 @@ if __name__ == "__main__":
     scrambled: Board = board_from([2, 1, 3, 4, 5, 6, 7, 8, 0], 3)
     assert not reachable(scrambled, goal(3))
     assert scrambled in other
+
+# ---- tests ----
+
+# %%
+from collections.abc import Callable, Hashable
+
+import numpy as np
+from numpy.linalg import matrix_power
+from numpy.typing import NDArray
+
+type Matrix = NDArray[np.float64]
+type Vector = NDArray[np.float64]
+
+def stat_list(start: Board) -> list[Board]:
+    """All vertices of the Graph"""
+    return sorted(explore(start, neighbors))
+
+def cycle_order(start: Board) -> list[Board]:
+    """Vertices of a cycle-shaped component in walking order. 2x2 only."""
+
+    assert degree(start) == 2, "cycle_order works only where every degree is 2"
+
+    order = [start]
+    prev: Board | None = None
+    cur = start
+    while True:
+        nxt = next(t for t in neighbors(cur) if t != prev)
+        if nxt == start:
+           return order
+        order.append(nxt)
+        prev, cur = cur, nxt
+
+def index_states[V: Hashable](states: list[V]) -> dict[V, int]:
+    """Map each vertex to its row/column number in the matrix."""
+    return {s: i for i, s in enumerate(states)}
+
+def transition_matrix[V: Hashable](
+    states: list[V], expand: Callable[[V], list[V]]
+) -> Matrix:
+    """Row-stochastic matrix of the simple random walk on the given vertices."""
+    idx = index_states(states)
+    n = len(states)
+    P = np.zeros((n, n), dtype=np.float64)
+
+    for s in states:
+        nbrs = expand(s)
+        p = 1 / len(nbrs)
+        for t in nbrs:
+            P[idx[s], idx[t]] += p
+
+    return P
+
+
+def step(pi: Vector, P: Matrix) -> Vector:
+    """One step of the walk: pi_{t+1} = pi_t P."""
+    return pi @ P
+
+def point_mass(n: int, i: int) -> Vector:
+    """Distribution concentrated on a single vertex."""
+    pi = np.zeros(n, dtype=np.float64)
+    pi[i] = 1.0
+    return pi
+
+print(f"{'#'*60}\n{'#'*60}")
+
+# %%
+# ---- tests: random walk on the 2x2 graph ----
+
+if __name__ == "__main__":
+    states = cycle_order(goal(2))
+    idx = index_states(states)
+    n = len(states)
+    P = transition_matrix(states, neighbors)
+
+    assert n == 12
+    assert P.shape == (n, n)
+
+    # rows are probability distributions
+    assert np.allclose(P.sum(axis=1), 1.0)
+
+    # row i has exactly deg(i) nonzeros, each equal to 1/deg(i)
+    for s in states:
+        row = P[idx[s]]
+        d = degree(s)
+        assert np.count_nonzero(row) == d
+        assert np.allclose(row[row > 0], 1.0 / d)
+
+    # nonzeros == 2|E|
+    assert np.count_nonzero(P) == sum(degree(s) for s in states)
+
+    # no self loops
+    assert np.allclose(np.diag(P), 0.0)
+
+    # the walk keeps total probability
+    pi = point_mass(n, idx[goal(2)])
+    for _ in range(20):
+        pi = step(pi, P)
+        assert np.isclose(pi.sum(), 1.0)
+
+    # stepping one at a time == multiplying by a matrix power
+    for t in (1, 2, 5, 13):
+        a = point_mass(n, 0)
+        for _ in range(t):
+            a = step(a, P)
+        assert np.allclose(a, point_mass(n, 0) @ matrix_power(P, t))
+
+    # period 2: after t steps the walk sits only on vertices of parity t
+    for t in range(8):
+        pi = point_mass(n, 0) @ matrix_power(P, t)
+        assert all(i % 2 == t % 2 for i in range(n) if pi[i] > 0)
+
+    # the 8-puzzle graph is bipartite: a move flips the colour of the blank cell
+    for b in list(explore(goal(3), neighbors))[:20000]:
+        r, c = find_blank(b)
+        for nb in neighbors(b):
+            rr, cc = find_blank(nb)
+            assert (r + c) % 2 != (rr + cc) % 2
+
+    print("all checks passed")
+    print()
+    print("2x2, distribution after t steps (start = goal)")
+    print("     " + " ".join(f"{i:>5}" for i in range(n)))
+    for t in range(7):
+        pi = point_mass(n, idx[goal(2)]) @ matrix_power(P, t)
+        print(f"t={t}  " + " ".join(f"{v:5.3f}" for v in pi))
+    print()
+    print(f"P is {n}x{n}, nonzeros: {np.count_nonzero(P)}")
+    print(f"a dense P for the 8-puzzle would hold {181440 ** 2:,} entries")
+
+    print(P)
+
+# --- test ---
+
