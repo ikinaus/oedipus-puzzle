@@ -95,9 +95,7 @@ def explore[V: Hashable](start: V, expand: Callable[[V], list[V]]) -> set[V]:
                 stack.append(nxt)
 
     return seen
-print(f"{'#'*60}\n{'#'*60}")
 
-# %%
 def board_from(cells: list[int], size: int) -> Board:
     return tuple(tuple(cells[r * size:(r + 1) * size]) for r in range(size))
 
@@ -108,6 +106,9 @@ def all_boards(size: int) -> list[Board]:
 def expected_degree(r: int, c: int, size: int) -> int:
     return sum(0 <= r + dr < size and 0 <= c + dc < size for dr, dc in DIRECTIONS)
 
+print(f"{'#'*60}\n{'#'*60}")
+
+# %%
 if __name__ == "__main__":
     EXPECTED_3X3 = {
         (0, 0): 2, (0, 1): 3, (0, 2): 2,
@@ -271,7 +272,7 @@ from numpy.typing import NDArray
 type Matrix = NDArray[np.float64]
 type Vector = NDArray[np.float64]
 
-def stat_list(start: Board) -> list[Board]:
+def state_list(start: Board) -> list[Board]:
     """All vertices of the Graph"""
     return sorted(explore(start, neighbors))
 
@@ -391,3 +392,76 @@ if __name__ == "__main__":
 
 # --- test ---
 
+
+# %%
+from numpy.linalg import eig
+
+
+def stationary(states: list[Board]) -> Vector:
+    """pi(v) = deg(v)/sum{deg(v)}"""
+    deg = np.array([degree(s) for s in states], dtype=np.float64)
+    return deg / deg.sum()
+
+# %%
+# ---- tests: stationary distribution ----
+
+if __name__ == "__main__":
+    # ---- 2x2: the matrix is small enough to check pi P = pi directly ----
+    states = cycle_order(goal(2))
+    idx = index_states(states)
+    P = transition_matrix(states, neighbors)
+    pi = stationary(states)
+
+    assert np.isclose(pi.sum(), 1.0)
+    assert np.allclose(pi @ P, pi)
+
+    # pi is the unique left eigenvector for eigenvalue 1
+    vals, vecs = eig(P.T)
+    one = np.argmin(np.abs(vals - 1.0))
+    v = np.real(vecs[:, one])
+    v = v / v.sum()
+    assert np.allclose(v, pi)
+
+    # detailed balance on every edge
+    for i, s in enumerate(states):
+        for t in neighbors(s):
+            j = idx[t]
+            assert np.isclose(pi[i] * P[i, j], pi[j] * P[j, i])
+
+    # on the ring every degree is 2, so pi is uniform and hides the formula
+    assert np.allclose(pi, 1.0 / len(states))
+
+    # ---- 3x3: no matrix at all, balance checked through the neighbour function ----
+    component = sorted(explore(goal(3), neighbors))
+    total_degree = sum(degree(b) for b in component)
+    edges = total_degree // 2
+
+    pi3 = {b: degree(b) / total_degree for b in component}
+    assert np.isclose(sum(pi3.values()), 1.0)
+
+    # (pi P)(j) = sum over neighbours i of pi(i)/deg(i)  must equal pi(j)
+    for b in component:
+        inflow = sum(pi3[nb] / degree(nb) for nb in neighbors(b))
+        assert np.isclose(inflow, pi3[b])
+
+    corner = min(pi3.values())
+    centre = max(pi3.values())
+
+    print("all checks passed")
+    print()
+    print(f"2x2  pi is uniform: {pi[0]:.6f} for all {len(states)} vertices")
+    print()
+    print(f"3x3  vertices        : {len(component):,}")
+    print(f"     sum of degrees  : {total_degree:,}  = 2|E|")
+    print(f"     edges           : {edges:,}")
+    print()
+    print(f"     pi(blank in corner) = 2/{total_degree:,} = {corner:.3e}  = 1/{1/corner:,.0f}")
+    print(f"     pi(blank at edge)   = 3/{total_degree:,} = {3/total_degree:.3e}")
+    print(f"     pi(blank in centre) = 4/{total_degree:,} = {centre:.3e}  = 1/{1/centre:,.0f}")
+    print(f"     ratio centre/corner : {centre/corner:.1f}")
+    print()
+    print(f"     the goal has its blank in a corner, so pi(goal) = 1/{1/pi3[goal(3)]:,.0f}")
+
+    # --- test ---
+
+    # %%
