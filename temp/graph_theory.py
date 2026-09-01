@@ -459,6 +459,47 @@ if __name__ == "__main__":
     print()
     print(f"     the goal has its blank in a corner, so pi(goal) = 1/{1/pi3[goal(3)]:,.0f}")
 
-    # --- test ---
+# --- test ---
 
-    # %%
+# %%
+from collections import deque
+
+
+def distances_from(target: Board) -> dict[Board, int]:
+    """Shortest distance from every reachable state to target"""
+    dist = {target: 0}
+    queue = deque([target])
+
+    while queue:
+        s = queue.popleft()
+        for t in neighbors(s):
+            if t not in dist:
+                dist[t] = dist[s] + 1
+                queue.append(t)
+    return dist
+# %%
+import polars as pl
+
+
+dist = distances_from(goal(3))
+flat = []
+
+for board in dist.keys():
+    cells = [v for row in board for v in row]
+    flat.append(cells)
+
+df = pl.DataFrame({
+    "board": flat,
+    "distance": list(dist.values()),
+})
+
+df.head()
+df.describe()
+# %%
+with pl.Config(tbl_rows=-1):
+    print(df["distance"].value_counts().sort(by="distance"))
+# %%
+import seaborn as sns
+
+hist = df["distance"].value_counts().sort(by="distance")
+sns.barplot(x=hist["distance"], y=hist["count"])
