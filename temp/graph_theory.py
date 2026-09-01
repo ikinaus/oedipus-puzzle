@@ -505,3 +505,26 @@ import seaborn as sns
 
 hist = df["distance"].value_counts().sort(by="distance")
 sns.barplot(x=hist["distance"], y=hist["count"])
+# %%
+
+def optimal_path(start: Board, dist: dict[Board, int]) -> list[Board]:
+    """States along one shortest path from `start` to the `goal`, inclusive"""
+    path = [start]
+    cur = start
+    while dist[cur] > 0:
+        cur = min(neighbors(cur), key=lambda u: dist[u])
+        path.append(cur)
+    return path
+# %%
+print(f"{'#'*60}\n{'#'*60}")
+# %%
+b = next(x for x in iter(lambda: random_board(3), None) if parity_class(x) == parity_class(goal(3)))
+print(b)
+print(parity_class(b) == parity_class(goal(3)))   # False для упавшей доски
+path = optimal_path(b, dist)
+print(len(path))
+np.array(path)
+# %%
+
+
+
