@@ -478,6 +478,8 @@ def distances_from(target: Board) -> dict[Board, int]:
                 queue.append(t)
     return dist
 # %%
+print(f"{'#'*60}\n{'#'*60}")
+# %%
 import polars as pl
 
 
