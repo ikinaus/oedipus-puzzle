@@ -10,10 +10,8 @@ while path[-1] != 6:
 
 print(f"nods: {path} \nlength(number of edges): {len(path) - 1}")
 # %%
-from gettext import find
 
 import numpy as np
-from numpy._core.numeric import ndarray
 
 board = np.array([[1, 2],
                   [3, 0]])
@@ -141,9 +139,9 @@ if __name__ == "__main__":
     assert b == before
 
     # handshake lemma on the full 2x2 graph
-    ring = explore(board_from([1, 2, 3, 0], 2), neighbors)
-    assert len(ring) == 12
-    assert sum(degree(b) for b in ring) == 2 * 12
+    ring_2x2 = explore(board_from([1, 2, 3, 0], 2), neighbors)
+    assert len(ring_2x2) == 12
+    assert sum(degree(b) for b in ring_2x2) == 2 * 12
 
     # size independence
     assert degree(board_from(list(range(16)), 4)) == 2
@@ -233,9 +231,9 @@ if __name__ == "__main__":
         assert parity_class(swap(b, pos[1], pos[2])) != parity_class(b)
 
     # 2x2: the reachable component is exactly 4!/2
-    ring = explore(goal(2), neighbors)
-    assert len(ring) == factorial(4) // 2 == 12
-    assert {parity_class(b) for b in ring} == {parity_class(goal(2))}
+    ring_2x2 = explore(goal(2), neighbors)
+    assert len(ring_2x2) == factorial(4) // 2 == 12
+    assert {parity_class(b) for b in ring_2x2} == {parity_class(goal(2))}
 
     # 3x3: full traversal of the component containing the goal
     component = explore(goal(3), neighbors)
@@ -263,7 +261,6 @@ if __name__ == "__main__":
 # ---- tests ----
 
 # %%
-from collections.abc import Callable, Hashable
 
 import numpy as np
 from numpy.linalg import matrix_power
@@ -424,23 +421,23 @@ if __name__ == "__main__":
 
     # detailed balance on every edge
     for i, s in enumerate(states):
-        for t in neighbors(s):
-            j = idx[t]
+        for nb in neighbors(s):
+            j = idx[nb]
             assert np.isclose(pi[i] * P[i, j], pi[j] * P[j, i])
 
     # on the ring every degree is 2, so pi is uniform and hides the formula
     assert np.allclose(pi, 1.0 / len(states))
 
     # ---- 3x3: no matrix at all, balance checked through the neighbour function ----
-    component = sorted(explore(goal(3), neighbors))
-    total_degree = sum(degree(b) for b in component)
+    component3 = sorted(explore(goal(3), neighbors))
+    total_degree = sum(degree(b) for b in component3)
     edges = total_degree // 2
 
-    pi3 = {b: degree(b) / total_degree for b in component}
+    pi3 = {b: degree(b) / total_degree for b in component3}
     assert np.isclose(sum(pi3.values()), 1.0)
 
     # (pi P)(j) = sum over neighbours i of pi(i)/deg(i)  must equal pi(j)
-    for b in component:
+    for b in component3:
         inflow = sum(pi3[nb] / degree(nb) for nb in neighbors(b))
         assert np.isclose(inflow, pi3[b])
 
@@ -451,7 +448,7 @@ if __name__ == "__main__":
     print()
     print(f"2x2  pi is uniform: {pi[0]:.6f} for all {len(states)} vertices")
     print()
-    print(f"3x3  vertices        : {len(component):,}")
+    print(f"3x3  vertices        : {len(component3):,}")
     print(f"     sum of degrees  : {total_degree:,}  = 2|E|")
     print(f"     edges           : {edges:,}")
     print()
