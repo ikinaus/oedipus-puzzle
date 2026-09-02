@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oedipus"
+version = "0.1.0"
+description = "Reinforcement learning for the sliding puzzle: 8-puzzle as a proving ground, 15-puzzle as the target"
+requires-python = ">=3.12"
+dependencies = ["numpy>=2.0", "pillow>=10.0"]
+
+[project.optional-dependencies]
+rl = ["gymnasium>=1.0", "torch>=2.4"]
+analysis = ["polars>=1.0", "scipy>=1.14", "seaborn>=0.13"]
+dev = ["mypy>=1.11", "ruff>=0.6", "pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["oedipus*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+strict = true
+
+[tool.pytest.ini_options]
+pythonpath = ["tests"]
