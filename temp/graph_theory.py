@@ -530,3 +530,6 @@ with pl.Config(fmt_table_cell_list_len=9):
 # %%
 ddf = [b for b, d in dist.items() if d == 31]
 np.array(ddf)
+# %%
+b = board_from([6, 1, 3, 8, 4, 2, 0, 7, 5], 3)
+optimal_path(b, dist)
