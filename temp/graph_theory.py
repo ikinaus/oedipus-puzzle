@@ -495,8 +495,8 @@ df = pl.DataFrame({
     "distance": list(dist.values()),
 })
 
-df.head()
-df.describe()
+print(df.head())
+print(df.describe())
 # %%
 with pl.Config(tbl_rows=-1):
     print(df["distance"].value_counts().sort(by="distance"))
@@ -525,6 +525,8 @@ path = optimal_path(b, dist)
 print(len(path))
 np.array(path)
 # %%
-
-
-
+with pl.Config(fmt_table_cell_list_len=9):
+    print(df.filter(pl.col("distance") == 31))
+# %%
+ddf = [b for b, d in dist.items() if d == 31]
+np.array(ddf)
