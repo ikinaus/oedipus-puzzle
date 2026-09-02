@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Oedipus — загадка Сфинкса</title>
+<style>
+:root{--bg:#14110d;--panel:#1e1a15;--ink:#e8dcc4;--accent:#c9a227;--line:#3a3228}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 0%,#241f18,var(--bg));color:var(--ink);
+  font:14px/1.5 "Iosevka","DejaVu Sans Mono",ui-monospace,monospace}
+.wrap{padding:24px}
+h1{font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+  margin:0 0 14px;color:var(--accent)}
+.hud{display:flex;gap:18px;margin-bottom:12px;font-size:13px;flex-wrap:wrap;align-items:center}
+.hud b{color:#fff;font-weight:600}
+#board{position:relative;display:grid;gap:3px;background:var(--line);padding:3px;
+  border-radius:4px;box-shadow:0 14px 40px #000a;touch-action:manipulation}
+.t{background-image:var(--img);background-repeat:no-repeat;cursor:pointer;position:relative;
+  transition:transform .09s ease;user-select:none}
+.t:hover{filter:brightness(1.12)}
+.t.blank{background:none;cursor:default;box-shadow:inset 0 0 0 1px #2a241c}
+.t .n{position:absolute;inset:0;display:none;place-items:center;font-size:26px;font-weight:700;
+  color:#ffecbe;text-shadow:0 2px 6px #000c}
+.dim .t:not(.blank) .n{display:grid}
+.peek .t .n{display:none!important}
+.bevel .t:not(.blank){box-shadow:inset 3px 3px 0 #ffffff80,inset -3px -3px 0 #00000088,
+  inset 0 0 0 1px #23190f}
+.dim .t:not(.blank){filter:brightness(.62)}
+.dim .t:not(.blank):hover{filter:brightness(.78)}
+.ctl{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+button,select{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  border-radius:3px;padding:6px 12px;font:inherit;font-size:12px;cursor:pointer}
+button:hover{border-color:var(--accent);color:#fff}
+.hint{margin-top:12px;font-size:11px;opacity:.55;max-width:420px}
+#win{position:absolute;inset:0;display:none;place-items:center;background:#0d0a06e0;
+  border-radius:4px;text-align:center}
+#win.on{display:grid}
+#win p{margin:0;font-size:20px;color:var(--accent);letter-spacing:.1em}
+#win small{display:block;margin-top:8px;font-size:12px;opacity:.7;letter-spacing:0}
+</style></head><body><div class="wrap">
+<h1>Oedipus &mdash; загадка Сфинкса</h1>
+<div class="hud">
+  <span>ходов <b id="moves">0</b></span>
+  <span>время <b id="clock">0:00</b></span>
+  <span id="depth"></span>
+</div>
+<div id="board" class="bevel"><div id="win"><p>СОБРАНО</p><small id="wintxt"></small></div></div>
+<div class="ctl">
+  <button id="shuffle">перемешать</button>
+  <select id="size"><option value="3">3&times;3</option><option value="4" selected>4&times;4</option></select>
+  <select id="skin"><option value="bevel">фаска</option><option value="dim">номера</option>
+    <option value="bevel dim">фаска + номера</option></select>
+  <button id="peek">показать целое</button>
+</div>
+<p class="hint">Клик по плитке рядом с дыркой двигает её. Стрелки двигают плитку в
+указанном направлении. Перемешивание всегда даёт решаемую позицию.</p>
+</div>
+<script>
+const IMG = "assets/pharaoh_ref.png";
+const board = document.getElementById('board');
+let n = 4, cells = [], blank = 0, moves = 0, t0 = null, timer = null, scrambleLen = 0;
+
+const px = () => Math.floor(Math.min(440, window.innerWidth - 70) / n);
+
+function build(){
+  const s = px();
+  board.style.gridTemplateColumns = `repeat(${n},${s}px)`;
+  board.querySelectorAll('.t').forEach(e => e.remove());
+  cells = [...Array(n*n).keys()].map(i => (i+1) % (n*n));   // goal: 1..n²-1 then 0
+  blank = n*n - 1;
+  for (let i = 0; i < n*n; i++){
+    const d = document.createElement('div');
+    d.className = 't'; d.style.width = d.style.height = s + 'px';
+    d.style.setProperty('--img', `url(${IMG})`);
+    d.innerHTML = '<span class="n"></span>';
+    d.onclick = () => tap(i);
+    board.appendChild(d);
+  }
+  paint(); reset();
+}
+
+function paint(){
+  const s = px(), tiles = board.querySelectorAll('.t');
+  cells.forEach((v, i) => {
+    const el = tiles[i];
+    if (v === 0){ el.className = 't blank'; el.querySelector('.n').textContent = ''; return; }
+    el.className = 't';
+    const r = Math.floor((v-1)/n), c = (v-1) % n;
+    el.style.backgroundSize = `${s*n}px ${s*n}px`;
+    el.style.backgroundPosition = `${-c*s}px ${-r*s}px`;
+    el.querySelector('.n').textContent = v;
+  });
+}
+
+const nbrs = i => {
+  const r = Math.floor(i/n), c = i % n, o = [];
+  if (r > 0) o.push(i-n); if (r < n-1) o.push(i+n);
+  if (c > 0) o.push(i-1); if (c < n-1) o.push(i+1);
+  return o;
+};
+
+function move(i, count = true){
+  if (!nbrs(blank).includes(i)) return false;
+  [cells[i], cells[blank]] = [cells[blank], cells[i]];
+  blank = i; if (count){ moves++; tick(); } paint(); return true;
+}
+const tap = i => { if (move(i)) check(); };
+
+function shuffle(){
+  const k = n === 3 ? 60 : 200;
+  let prev = -1;
+  for (let s = 0; s < k; s++){
+    const opts = nbrs(blank).filter(x => x !== prev);
+    prev = blank; move(opts[Math.random()*opts.length|0], false);
+  }
+  scrambleLen = k; reset();
+}
+
+function reset(){
+  moves = 0; t0 = null; clearInterval(timer); timer = null;
+  document.getElementById('moves').textContent = 0;
+  document.getElementById('clock').textContent = '0:00';
+  document.getElementById('win').classList.remove('on');
+  document.getElementById('depth').textContent = scrambleLen ? `перемешано ${scrambleLen}` : '';
+}
+
+function tick(){
+  document.getElementById('moves').textContent = moves;
+  if (!t0){ t0 = Date.now(); timer = setInterval(() => {
+    const s = (Date.now()-t0)/1000|0;
+    document.getElementById('clock').textContent = `${s/60|0}:${String(s%60).padStart(2,'0')}`;
+  }, 500); }
+}
+
+function check(){
+  if (!cells.every((v, i) => v === (i+1) % (n*n))) return;
+  clearInterval(timer);
+  document.getElementById('wintxt').textContent = `${moves} ходов`;
+  document.getElementById('win').classList.add('on');
+}
+
+addEventListener('keydown', e => {
+  const r = Math.floor(blank/n), c = blank % n;
+  const map = {ArrowUp:[r+1,c], ArrowDown:[r-1,c], ArrowLeft:[r,c+1], ArrowRight:[r,c-1]};
+  const m = map[e.key]; if (!m) return; e.preventDefault();
+  const [rr, cc] = m;
+  if (rr >= 0 && rr < n && cc >= 0 && cc < n && move(rr*n+cc)) check();
+});
+
+document.getElementById('shuffle').onclick = shuffle;
+document.getElementById('peek').onclick = e => {
+  board.classList.toggle('peek');
+  const on = board.classList.contains('peek');
+  board.querySelectorAll('.t').forEach((el, i) => {
+    if (!on){ paint(); return; }
+    const s = px(), r = Math.floor(i/n), c = i % n;
+    el.className = 't'; el.style.backgroundSize = `${s*n}px ${s*n}px`;
+    el.style.backgroundPosition = `${-c*s}px ${-r*s}px`;
+    el.querySelector('.n').textContent = '';
+  });
+  e.target.textContent = on ? 'вернуть' : 'показать целое';
+};
+document.getElementById('size').onchange = e => { n = +e.target.value; scrambleLen = 0; build(); };
+document.getElementById('skin').onchange = e => { board.className = e.target.value; };
+addEventListener('resize', paint);
+build();
+</script></body></html>
