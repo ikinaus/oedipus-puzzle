@@ -35,6 +35,7 @@ class Action(IntEnum):
     LEFT = 2
     RIGHT = 3    
 
+
 def find_blank(board: Board) -> Coord:
     for r, row in enumerate(board):
         for c, value in enumerate(row):
@@ -50,6 +51,7 @@ def swap(board: Board, a: Coord, b: Coord) -> Board:
     rows[r1][c1], rows[r2][c2] = rows[r2][c2], rows[r1][c1]
     return tuple(tuple(row) for row in rows)
 
+
 def legal_actions(board: Board) -> tuple[Action, ...]:
     n = len(board)
     row, col = find_blank(board)
@@ -61,20 +63,29 @@ def legal_actions(board: Board) -> tuple[Action, ...]:
         new_col = col + dc
 
         if 0 <= new_row < n and 0 <= new_col < n:
-            result.append(new_col)
+            result.append(action)
 
     return tuple(result)
 
+
+def transition(board: Board, action: Action) -> Board:
+    n = len(board)
+    row, col = find_blank(board)
+    dr, dc = DIRECTIONS[action]
+    new_row = row + dr
+    new_col = col + dc
+
+    if not (0 <= new_row < n and 0 <= new_col < n):
+            raise ValueError(
+                f"action {action.name} is illegal for blank at {(row, col)}"
+            )
+
+    return swap(board, (row, col), (new_row, new_col))
+
+
 def neighbors(board: Board) -> list[Board]:
     """Every board reachable in exactly one move."""
-    n = len(board)
-    r, c = find_blank(board)
-    result: list[Board] = []
-    for dr, dc in DIRECTIONS:
-        rr, cc = r + dr, c + dc
-        if 0 <= rr < n and 0 <= cc < n:
-            result.append(swap(board, (r, c), (rr, cc)))
-    return result
+    return [transition(board, action) for action in legal_actions(board)]
 
 
 def degree(board: Board) -> int:
