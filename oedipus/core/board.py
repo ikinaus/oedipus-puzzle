@@ -8,9 +8,9 @@ of visited states and the tabular agents key their tables by state.
      (4, 5, 6),   ==     4 5 6
      (7, 8, 0))          7 8 .
 
-An action moves the BLANK, not a tile. There are then exactly four actions and
-the action set is the same in every state. The price is inverted directions:
-moving the blank up means the tile above it slid down.
+An action moves the BLANK, not a tile. The action space always contains four
+directions, while the legal actions depend on the blank position. The price is
+inverted directions: moving the blank up means the tile above it slid down.
 
 Nothing here is specific to 3x3 — the size is read from the board itself.
 """
