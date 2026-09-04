@@ -14,6 +14,7 @@ moving the blank up means the tile above it slid down.
 
 Nothing here is specific to 3x3 — the size is read from the board itself.
 """
+from enum import IntEnum
 from typing import Final
 
 type Coord = tuple[int, int]
@@ -21,8 +22,18 @@ type Row = tuple[int, ...]
 type Board = tuple[Row, ...]
 
 BLANK: Final[int] = 0
-DIRECTIONS: Final[tuple[Coord, ...]] = ((-1, 0), (1, 0), (0, -1), (0, 1))
+DIRECTIONS: Final[tuple[Coord, ...]] = (
+    (-1, 0),
+    (1, 0),
+    (0, -1),
+    (0, 1),
+)
 
+class Action(IntEnum):
+    UP = 0
+    DOWN = 1
+    LEFT = 2
+    RIGHT = 3    
 
 def find_blank(board: Board) -> Coord:
     for r, row in enumerate(board):
@@ -39,6 +50,20 @@ def swap(board: Board, a: Coord, b: Coord) -> Board:
     rows[r1][c1], rows[r2][c2] = rows[r2][c2], rows[r1][c1]
     return tuple(tuple(row) for row in rows)
 
+def legal_actions(board: Board) -> tuple[Action, ...]:
+    n = len(board)
+    row, col = find_blank(board)
+    result: list[Action] = []
+
+    for action in Action:
+        dr, dc = DIRECTIONS[action]
+        new_row = row + dr
+        new_col = col + dc
+
+        if 0 <= new_row < n and 0 <= new_col < n:
+            result.append(new_col)
+
+    return tuple(result)
 
 def neighbors(board: Board) -> list[Board]:
     """Every board reachable in exactly one move."""
