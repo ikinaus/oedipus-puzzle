@@ -7,6 +7,7 @@ that a random policy reaches the goal about once per 5000 episodes and that
 learning therefore cannot start without curriculum, HER or reward shaping.
 """
 from collections.abc import Callable, Hashable
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -76,4 +77,5 @@ def point_mass(n: int, i: int) -> Vector:
 def stationary(states: list[Board]) -> Vector:
     """pi(v) = deg(v)/sum{deg(v)}"""
     deg = np.array([degree(s) for s in states], dtype=np.float64)
-    return deg / deg.sum()
+    total = cast(np.float64, deg.sum())
+    return np.divide(deg, total, dtype=np.float64)
