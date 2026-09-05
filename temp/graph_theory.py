@@ -533,3 +533,53 @@ np.array(ddf)
 # %%
 b = board_from([6, 1, 3, 8, 4, 2, 0, 7, 5], 3)
 optimal_path(b, dist)
+
+# %%
+target = goal(3)
+vi_states = explore(target, neighbors)
+
+
+def value_iteration(
+    states: set[Board],
+    target: Board,
+    gamma: float = 1.0,
+) -> dict[Board, float]:
+    old_V: dict[Board, float] = {
+        state: 0.0
+        for state in states
+    }
+    delta = float("inf")
+    while delta != 0:
+        delta = 0
+        new_V: dict[Board, float] = {}
+
+        for state in states:
+            if state == target:
+                new_val = 0.0
+            else:
+                new_val = max(
+                    -1.0 + gamma * old_V[next_state]
+                    for next_state in neighbors(state)
+                )
+
+            new_V[state] = new_val
+
+            change = abs(new_val - old_V[state])
+            delta = max(change, delta)
+
+        old_V = new_V
+
+    return old_V
+
+
+# %%
+values = value_iteration(vi_states, target)
+print(len(values))
+print(min(values.values()), max(values.values()))
+
+# %%
+error = max(
+    abs(values[state] + dist[state])
+    for state in vi_states
+)
+print(error)
