@@ -617,11 +617,12 @@ while b != goal(3):
 
 print(steps)
 print(b)
+
+# %%
 def greedy_path(
     start: Board,
     target: Board,
-    values: dict[Board, float],
-) -> list[Board]:
+    values: dict[Board, float]) -> list[Board]:
 
     trajectory = [start]
     current = start
@@ -632,3 +633,16 @@ def greedy_path(
         trajectory.append(current)
 
     return trajectory
+
+print(f"{'#'*60}\n{'#'*60}")
+# %%
+greedy_start = next(
+    state for state, distance in dist.items()
+    if distance == 31
+)
+greedy_trajectory = greedy_path(greedy_start, target, values)
+
+assert greedy_trajectory[-1] == target
+assert len(greedy_trajectory) - 1 == dist[greedy_start]
+
+print(len(greedy_trajectory) - 1)
