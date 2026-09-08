@@ -583,3 +583,52 @@ error = max(
     for state in vi_states
 )
 print(error)
+
+# %%
+
+from oedipus.core.board import Action, legal_actions, transition
+
+
+def greedy_action(board: Board, values: dict[Board, float]) -> Action:
+    return max(
+        legal_actions(board),
+        key=lambda action: values[transition(board, action)]
+    )
+
+print(f"{'#'*60}\n{'#'*60}")
+
+# %%
+temp_board = random_board(3)
+while parity_class(temp_board)!=parity_class(goal(3)):
+    temp_board = random_board(3)
+print(temp_board)
+# %%
+print(values[temp_board])
+# %%
+
+
+b: Board = temp_board
+steps: int = 0
+
+while b != goal(3):
+    action: Action = greedy_action(b, values)
+    b = transition(b, action)
+    steps += 1
+
+print(steps)
+print(b)
+def greedy_path(
+    start: Board,
+    target: Board,
+    values: dict[Board, float],
+) -> list[Board]:
+
+    trajectory = [start]
+    current = start
+
+    while current != target:
+        action = greedy_action(current, values)
+        current = transition(current, action)
+        trajectory.append(current)
+
+    return trajectory
