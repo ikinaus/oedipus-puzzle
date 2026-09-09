@@ -704,3 +704,30 @@ for s in vi_states:
 # %%
 print(flag)
 # %%
+def bellman_residual(
+    q_values: dict[tuple[Board, Action], float],
+    target: Board,
+    gamma: float = 1.0,
+) -> float:
+
+    max_error: float = 0.0
+    
+    for s, a in q_values:
+        s_slash = transition(s, a)
+        
+        if s_slash == target:
+            y = -1
+        else:
+            q_val_max = max(
+                q_values[(s_slash, a_slash)]
+                for a_slash in legal_actions(s_slash)
+            ) 
+            y = -1 + gamma * q_val_max
+
+        error = abs(q_values[(s, a)] - y)
+        max_error = max(max_error, error)
+
+    return max_error
+# %%
+
+print(bellman_residual(q_vals, target))
