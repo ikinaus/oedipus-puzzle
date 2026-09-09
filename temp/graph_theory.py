@@ -711,17 +711,17 @@ def bellman_residual(
 ) -> float:
 
     max_error: float = 0.0
-    
+
     for s, a in q_values:
         s_slash = transition(s, a)
-        
+
         if s_slash == target:
             y = -1
         else:
             q_val_max = max(
                 q_values[(s_slash, a_slash)]
                 for a_slash in legal_actions(s_slash)
-            ) 
+            )
             y = -1 + gamma * q_val_max
 
         error = abs(q_values[(s, a)] - y)
@@ -731,3 +731,30 @@ def bellman_residual(
 # %%
 
 print(bellman_residual(q_vals, target))
+# %%
+def q_update(
+    q: dict[tuple[Board, Action], float],
+    state_start: Board,
+    action: Action,
+    state_slash: Board,
+    terminated: bool,
+    gamma: float = 1.0,
+    alpha: float = 0.5
+) -> float:
+
+    if terminated: 
+        y = -1
+
+    else:
+        q_slash_max = max(
+            q[(state_slash, a_slash)]
+            for a_slash in legal_actions(state_slash)
+        )
+        y = -1 + gamma * q_slash_max
+
+    delta = y - q[(state_start, action)]
+    q[(state_start, action)] += alpha * delta
+
+    return delta
+
+# %%
