@@ -11,6 +11,8 @@ while path[-1] != 6:
 print(f"nods: {path} \nlength(number of edges): {len(path) - 1}")
 # %%
 
+from turtle import st
+
 import numpy as np
 
 board = np.array([[1, 2],
@@ -646,3 +648,59 @@ assert greedy_trajectory[-1] == target
 assert len(greedy_trajectory) - 1 == dist[greedy_start]
 
 print(len(greedy_trajectory) - 1)
+# %%
+
+def q_values_from_state_values(
+    states: set[Board],
+    target: Board,
+    values: dict[Board, float],
+    gamma: float=1.0,
+) -> dict[tuple[Board, Action], float]:
+
+    q_values: dict[tuple[Board, Action], float] = {}
+
+    for s in states:
+        if s == target:
+            continue
+
+        actions = legal_actions(s)
+        for a in actions:
+            s_new = transition(s, a)
+            q = -1 + gamma * values[s_new]
+            q_values[(s, a)] = q
+
+    return q_values
+# %%
+from oedipus.core.graph import explore
+
+target = goal(3)
+vi_states = explore(target, neighbors)
+vals = value_iteration(vi_states, target)
+# %%
+q_vals = q_values_from_state_values(
+    vi_states,
+    target,
+    vals)
+# %%
+print(len(q_vals))
+# %%
+
+
+vi_gen: dict[Board, float] = {}
+flag = True
+
+for s in vi_states:
+    if s == target:
+        pass
+    else:
+        actions = legal_actions(s)
+        q_val_max = max(
+            q_vals[(s, a)]
+            for a in actions
+        )
+        vi_gen[s] = q_val_max
+        if vi_gen[s] != vals[s]:
+            flag = False
+# %%
+print(flag)
+# %%
