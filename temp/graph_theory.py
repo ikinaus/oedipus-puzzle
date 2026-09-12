@@ -739,23 +739,23 @@ def q_update(
     next_state: Board,
     terminated: bool,
     gamma: float = 1.0,
-    alpha: float = 0.5
+    alpha: float = 0.5,
 ) -> float:
-
+    
     if terminated:
-        y = -1
+        td_target = -1.0
 
     else:
-        q_slash_max = max(
-            q[(next_state, a_slash)]
-            for a_slash in legal_actions(next_state)
+        best_next_q = max(
+            q[(next_state, next_action)]
+            for next_action in legal_actions(next_state)
         )
-        y = -1 + gamma * q_slash_max
+        td_target = -1.0 + gamma * best_next_q
 
-    delta = y - q[(state, action)]
-    q[(state, action)] += alpha * delta
+    td_error = td_target - q[(state, action)]
+    q[(state, action)] += alpha * td_error
 
-    return delta
+    return td_error
 
 # %%
 
@@ -781,7 +781,7 @@ def softmax_action(
 
     scores_array = np.asarray(scores, dtype=np.float64)
     if not np.isfinite(scores_array).all():
-            raise ValueError("scores must be finite")
+        raise ValueError("scores must be finite")
 
     probabilities = softmax(
         (scores_array - scores_array.max()) / temperature
@@ -795,30 +795,32 @@ def softmax_action(
 # %%
 
 def train_tabular_q_learning(
+    states: set[Board],
+    target: Board,
+    rng: np.random.Generator,
     num_episodes: int,
     max_steps_per_episode: int,
     gamma: float = 1.0,
     alpha: float = 0.5,
-    temperature: float = 2,
+    temperature: float = 2.0,
 ) -> dict[tuple[Board, Action], float]:
-
+    
     q: dict[tuple[Board, Action], float] = {
         (state, action): 0.0
-        for state in vi_states
+        for state in states
         if state != target
         for action in legal_actions(state)
     }
 
-    rng = np.random.default_rng(42)
-    start_states = list(vi_states - {target})
+    start_states = sorted(states - {target})
 
-    for episode in range(num_episodes):
-        index = rng.integers(len(start_states))
-        s: Board = start_states[index]
+    for _ in range(num_episodes):
+        index = int(rng.integers(len(start_states)))
+        state = start_states[index]
 
-        for step in range(max_steps_per_episode):
-            actions = legal_actions(s)
-            scores = [q[(s, action)] for action in actions]
+        for _ in range(max_steps_per_episode):
+            actions = legal_actions(state)
+            scores = [q[(state, action)] for action in actions]
 
             action = softmax_action(
                 actions,
@@ -827,22 +829,22 @@ def train_tabular_q_learning(
                 rng,
             )
 
-            s_slash = transition(s, action)
-            terminated = s_slash == target
+            next_state = transition(state, action)
+            terminated = next_state == target
 
-            delta = q_update(
-                q, s, action,
-                s_slash,
+            q_update(
+                q, state, action,
+                next_state,
                 terminated,
-                gamma,
-                alpha
+                gamma=gamma,
+                alpha=alpha,
             )
 
-            s = s_slash
+            state = next_state
 
             if terminated:
                 break
 
     return q
 
-    # %%
+# %%
