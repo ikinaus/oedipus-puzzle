@@ -758,3 +758,35 @@ def q_update(
     return delta
 
 # %%
+
+from collections.abc import Sequence
+
+import numpy as np
+from scipy.special import softmax
+
+
+def softmax_action(
+    actions: Sequence[Action],
+    scores: Sequence[float],
+    temperature: float,
+    rng: np.random.Generator,
+) -> Action:
+
+    if not actions:
+        raise ValueError("actions must not be empty")
+    if len(actions) != len(scores):
+        raise ValueError("actions and scores must have equal lengths")
+    if not np.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be finite and positive")
+
+    scores_array = np.asarray(scores, dtype=np.float64)
+    if not np.isfinite(scores_array).all():
+            raise ValueError("scores must be finite")
+
+    probabilities = softmax(
+        (scores_array - scores_array.max()) / temperature
+    )
+
+    index = int(rng.choice(len(actions), p=probabilities))
+
+    return actions[index]
