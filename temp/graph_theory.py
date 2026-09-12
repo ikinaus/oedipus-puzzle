@@ -734,26 +734,26 @@ print(bellman_residual(q_vals, target))
 # %%
 def q_update(
     q: dict[tuple[Board, Action], float],
-    state_start: Board,
+    state: Board,
     action: Action,
-    state_slash: Board,
+    next_state: Board,
     terminated: bool,
     gamma: float = 1.0,
     alpha: float = 0.5
 ) -> float:
 
-    if terminated: 
+    if terminated:
         y = -1
 
     else:
         q_slash_max = max(
-            q[(state_slash, a_slash)]
-            for a_slash in legal_actions(state_slash)
+            q[(next_state, a_slash)]
+            for a_slash in legal_actions(next_state)
         )
         y = -1 + gamma * q_slash_max
 
-    delta = y - q[(state_start, action)]
-    q[(state_start, action)] += alpha * delta
+    delta = y - q[(state, action)]
+    q[(state, action)] += alpha * delta
 
     return delta
 
@@ -790,3 +790,59 @@ def softmax_action(
     index = int(rng.choice(len(actions), p=probabilities))
 
     return actions[index]
+# %%
+
+# %%
+
+def train_tabular_q_learning(
+    num_episodes: int,
+    max_steps_per_episode: int,
+    gamma: float = 1.0,
+    alpha: float = 0.5,
+    temperature: float = 2,
+) -> dict[tuple[Board, Action], float]:
+
+    q: dict[tuple[Board, Action], float] = {
+        (state, action): 0.0
+        for state in vi_states
+        if state != target
+        for action in legal_actions(state)
+    }
+
+    rng = np.random.default_rng(42)
+    start_states = list(vi_states - {target})
+
+    for episode in range(num_episodes):
+        index = rng.integers(len(start_states))
+        s: Board = start_states[index]
+
+        for step in range(max_steps_per_episode):
+            actions = legal_actions(s)
+            scores = [q[(s, action)] for action in actions]
+
+            action = softmax_action(
+                actions,
+                scores,
+                temperature,
+                rng,
+            )
+
+            s_slash = transition(s, action)
+            terminated = s_slash == target
+
+            delta = q_update(
+                q, s, action,
+                s_slash,
+                terminated,
+                gamma,
+                alpha
+            )
+
+            s = s_slash
+
+            if terminated:
+                break
+
+    return q
+
+    # %%
