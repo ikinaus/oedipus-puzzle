@@ -848,3 +848,88 @@ def train_tabular_q_learning(
     return q
 
 # %%
+# На 3×3 проверяем всю Q-table: при gamma=1 эталон Q*(s, a) = -1 - d*(s').
+
+test_target = goal(3)
+
+test_states = explore(
+    test_target, 
+    neighbors
+)
+
+learned_q = train_tabular_q_learning(
+    test_states, 
+    test_target, 
+    np.random.default_rng(42),
+    num_episodes=10000, 
+    max_steps_per_episode=60,
+    gamma=1.0, alpha=0.5,
+)
+
+# %%
+
+exact_distances = distances_from(test_target)
+
+expected_keys = {
+    (state, action)
+    for state in test_states - {test_target}
+    for action in legal_actions(state)
+}
+
+assert set(learned_q) == expected_keys
+
+q_errors_arr = np.array([
+    abs(
+        learned_q[state, action] 
+        + 1
+        + exact_distances[transition(state, action)]
+    )
+    for state, action in expected_keys
+])
+
+max_q_error = q_errors_arr.max()
+mean_q_error = q_errors_arr.mean()
+
+# assert max_q_error < 1e-8, max_q_error
+
+learned_q_arr = np.array(list(learned_q.values()))
+non_zero_elements_number = (learned_q_arr != 0.0).sum()
+
+print(
+    f"3x3: {len(learned_q)} Q-values checked\n",
+    f"max error = {max_q_error:.3g}\n",
+    f"mean error = {mean_q_error}\n",
+    f"number of non zero states = {non_zero_elements_number}", sep = ''
+)
+# %%
+# Проверяем поведение: фиксированная Q-table, без обучения и случайного выбора.
+def check_greedy_q_path(
+    start: Board,
+    target: Board,
+    q: dict[tuple[Board, Action], float],
+    max_steps: int = 100,
+) -> tuple[str, int]:
+    visited: set[Board] = set()
+    state = start
+    steps = 0
+
+    while state != target:
+        if state in visited:
+            return "cycle", steps
+        if steps >= max_steps:
+            return "limit", steps
+        visited.add(state)
+        action = max(legal_actions(state), key=lambda a: q[state, a])
+        state = transition(state, action)
+        steps += 1
+
+    return "solved", steps
+
+
+q_check_start = next(state for state, distance in exact_distances.items() if distance == 2)
+q_check_status, q_check_steps = check_greedy_q_path(q_check_start, test_target, learned_q)
+print(f"Greedy Q-policy: {q_check_status}, moves = {q_check_steps}, optimal = 2")
+if q_check_status == "solved":
+    q_check_gap = q_check_steps - exact_distances[q_check_start]
+    assert q_check_gap >= 0
+    print(f"Optimality gap = {q_check_gap}")
