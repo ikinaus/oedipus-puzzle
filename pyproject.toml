@@ -11,7 +11,7 @@ dependencies = ["numpy>=2.0", "pillow>=10.0"]
 
 [project.optional-dependencies]
 rl = ["gymnasium>=1.0", "torch>=2.4"]
-analysis = ["polars>=1.0", "scipy>=1.14", "seaborn>=0.13"]
+analysis = ["polars>=1.0", "scipy>=1.14", "seaborn>=0.13", "numba>=0.56"]
 dev = ["mypy>=1.11", "ruff>=0.6", "pytest>=8.0"]
 
 [tool.setuptools.packages.find]

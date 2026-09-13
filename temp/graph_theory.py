@@ -38,7 +38,7 @@ print(board)
 neighbors2(board)
 # %%
 from collections.abc import Callable, Hashable
-from typing import Final
+from typing import Any, Final
 
 type Coord = tuple[int, int]
 type Row = tuple[int, ...]
@@ -741,7 +741,7 @@ def q_update(
     gamma: float = 1.0,
     alpha: float = 0.5,
 ) -> float:
-    
+
     if terminated:
         td_target = -1.0
 
@@ -792,19 +792,18 @@ def softmax_action(
     return actions[index]
 # %%
 
-# %%
-
-def train_tabular_q_learning(
+def train_tabular_q_learning_reference(
     states: set[Board],
     target: Board,
     rng: np.random.Generator,
     num_episodes: int,
     max_steps_per_episode: int,
+    start_states: Sequence[Board] | None = None,
     gamma: float = 1.0,
     alpha: float = 0.5,
     temperature: float = 2.0,
 ) -> dict[tuple[Board, Action], float]:
-    
+
     q: dict[tuple[Board, Action], float] = {
         (state, action): 0.0
         for state in states
@@ -812,7 +811,10 @@ def train_tabular_q_learning(
         for action in legal_actions(state)
     }
 
-    start_states = sorted(states - {target})
+    if not start_states:
+        if start_states is not None:
+            raise ValueError("Empty list of available starting position")
+        start_states = sorted(states - {target})
 
     for _ in range(num_episodes):
         index = int(rng.integers(len(start_states)))
@@ -848,52 +850,241 @@ def train_tabular_q_learning(
     return q
 
 # %%
+# Быстрый вариант: Board остаётся ключом внешнего API; внутри цикла используем номера строк.
+from numba import njit
+from numpy.typing import NDArray
+
+
+@njit  # type: ignore[untyped-decorator]
+def _train_indexed_q(
+    q: NDArray[np.float64],
+    successors: NDArray[np.int64],
+    starts: NDArray[np.int64],
+    target_id: int,
+    rng: np.random.Generator,
+    num_episodes: int,
+    max_steps_per_episode: int,
+    gamma: float,
+    alpha: float,
+    temperature: float,
+) -> tuple[int, int]:
+    """Sequential online updates; q may be retained between experiment checkpoints."""
+    weights = np.empty(4, dtype=np.float64)
+    transitions = 0
+    solved = 0
+    for episode in range(num_episodes):
+        state_id = starts[rng.integers(0, len(starts))]
+        for step in range(max_steps_per_episode):
+            best_q = -np.inf
+            for action in range(4):
+                if successors[state_id, action] >= 0:
+                    best_q = max(best_q, q[state_id, action])
+            total_weight = 0.0
+            chosen = 0
+            for action in range(4):
+                weights[action] = 0.0
+                if successors[state_id, action] >= 0:
+                    weights[action] = np.exp((q[state_id, action] - best_q) / temperature)
+                    total_weight += weights[action]
+                    chosen = action  # Last legal action handles rounding at the upper boundary.
+            # Inverse CDF sampling of the same softmax distribution (one uniform draw).
+            draw = rng.random()
+            cumulative = 0.0
+            for action in range(4):
+                cumulative += weights[action] / total_weight
+                if draw < cumulative:
+                    chosen = action
+                    break
+
+            next_id = successors[state_id, chosen]
+            td_target = -1.0
+            if next_id != target_id:
+                best_next_q = -np.inf
+                for next_action in range(4):
+                    if successors[next_id, next_action] >= 0:
+                        best_next_q = max(best_next_q, q[next_id, next_action])
+                td_target += gamma * best_next_q
+            q[state_id, chosen] += alpha * (td_target - q[state_id, chosen])
+            transitions += 1
+            state_id = next_id
+            if state_id == target_id:
+                solved += 1
+                break
+    return transitions, solved
+
+
+def train_tabular_q_learning(
+    states: set[Board],
+    target: Board,
+    rng: np.random.Generator,
+    num_episodes: int,
+    max_steps_per_episode: int,
+    start_states: Sequence[Board] | None = None,
+    gamma: float = 1.0,
+    alpha: float = 0.5,
+    temperature: float = 2.0,
+    *,
+    statistics: dict[str, int] | None = None,
+) -> dict[tuple[Board, Action], float]:
+    """Same tabular learner, with cached transitions and a Numba-compiled loop.
+
+    Every call starts from zero. statistics optionally receives actual step/episode counts.
+    The first call also pays the one-time compilation cost; no parallel Q updates are used.
+    """
+    if target not in states:
+        raise ValueError("target must belong to states")
+    if num_episodes < 0 or max_steps_per_episode < 0:
+        raise ValueError("episode and step counts must be nonnegative")
+    if not 0.0 <= gamma <= 1.0 or not 0.0 < alpha <= 1.0:
+        raise ValueError("require 0 <= gamma <= 1 and 0 < alpha <= 1")
+    if not np.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be finite and positive")
+    boards = sorted(states)
+    indices = {state: index for index, state in enumerate(boards)}
+    starts = sorted(states - {target}) if start_states is None else list(start_states)
+    if not starts or any(state == target or state not in states for state in starts):
+        raise ValueError("start_states must contain nonterminal states from states")
+    successors = np.full((len(boards), 4), -1, dtype=np.int64)
+    for state_id, state in enumerate(boards):
+        if state != target:
+            for action in legal_actions(state):
+                next_state = transition(state, action)
+                if next_state not in indices:
+                    raise ValueError("states must include every successor of nonterminal states")
+                successors[state_id, action] = indices[next_state]
+    start_ids = np.array([indices[state] for state in starts], dtype=np.int64)
+    q_array = np.zeros((len(boards), 4), dtype=np.float64)
+    transitions, solved = _train_indexed_q(
+        q_array, successors, start_ids, indices[target], rng,
+        num_episodes, max_steps_per_episode, gamma, alpha, temperature,
+    )
+    if statistics is not None:
+        statistics.update(transitions=int(transitions), solved_episodes=int(solved))
+    return {
+        (state, action): float(q_array[state_id, action])
+        for state_id, state in enumerate(boards)
+        for action in Action
+        if successors[state_id, action] >= 0
+    }
+
+# %%
+def validate_fast_q_learning() -> None:
+    """The optimization must preserve the reference learner on controlled experiments."""
+    small_target = goal(2)
+    small_states = explore(small_target, neighbors)
+    for discount, learning_rate in ((1.0, 0.5), (0.9, 0.3), (0.0, 1.0)):
+        reference_q = train_tabular_q_learning_reference(
+            small_states, small_target, np.random.default_rng(42), 100, 30,
+            gamma=discount, alpha=learning_rate,
+        )
+        fast_q = train_tabular_q_learning(
+            small_states, small_target, np.random.default_rng(42), 100, 30,
+            gamma=discount, alpha=learning_rate,
+        )
+        assert fast_q == reference_q
+    single_start = [transition(small_target, Action.LEFT)]
+    reference_q = train_tabular_q_learning_reference(
+        small_states, small_target, np.random.default_rng(7), 100, 1,
+        start_states=single_start,
+    )
+    fast_q = train_tabular_q_learning(
+        small_states, small_target, np.random.default_rng(7), 100, 1,
+        start_states=single_start,
+    )
+    assert fast_q == reference_q
+    print("Fast/reference Q-learning parity passed.")
+
+# %%
+def run_long_q_learning_check(
+    num_episodes: int = 2_000_000,
+    seed: int = 42,
+) -> dict[tuple[Board, Action], float]:
+    """Reproduce the full 3x3 experiment; all starts, gamma=1, 60 moves per episode."""
+    from time import perf_counter
+
+    long_target = goal(3)
+    long_states = explore(long_target, neighbors)
+    long_statistics: dict[str, int] = {}
+    started = perf_counter()
+    long_q = train_tabular_q_learning(
+        long_states, long_target, np.random.default_rng(seed), num_episodes, 60,
+        gamma=1.0, alpha=0.5, temperature=2.0, statistics=long_statistics,
+    )
+    elapsed = perf_counter() - started
+    # BFS is used only after training, as an independent evaluation oracle.
+    long_distances = distances_from(long_target)
+    long_errors = np.array([
+        abs(value + 1 + long_distances[transition(state, action)])
+        for (state, action), value in long_q.items()
+    ])
+    optimal_choices = 0
+    for state in long_states - {long_target}:
+        action = max(legal_actions(state), key=lambda a: long_q[state, a])
+        if long_distances[transition(state, action)] == long_distances[state] - 1:
+            optimal_choices += 1
+    print(f"Episodes = {num_episodes}, seed = {seed}, training seconds = {elapsed:.3f}")
+    print(f"Transitions = {long_statistics['transitions']}")
+    print(f"Training episodes reaching goal = {long_statistics['solved_episodes']}")
+    print(f"Q error: max = {long_errors.max():.6g}, mean = {long_errors.mean():.6g}")
+    print(f"States with optimal greedy action = {optimal_choices}/{len(long_states) - 1}")
+    if optimal_choices == len(long_states) - 1:
+        print("Every greedy move reduces exact distance by 1: all paths are optimal.")
+    return long_q
+
+
+# Run in a separate cell when wanted: long_q = run_long_q_learning_check()
+# %%
+q_2mil = run_long_q_learning_check()
+
+# %%
 # На 3×3 проверяем всю Q-table: при gamma=1 эталон Q*(s, a) = -1 - d*(s').
+if __name__ == "__main__":
 
-test_target = goal(3)
+    test_target = goal(3)
 
-test_states = explore(
-    test_target, 
-    neighbors
-)
+    test_states = explore(
+        test_target,
+        neighbors
+    )
 
-learned_q = train_tabular_q_learning(
-    test_states, 
-    test_target, 
-    np.random.default_rng(42),
-    num_episodes=10000, 
-    max_steps_per_episode=60,
-    gamma=1.0, alpha=0.5,
-)
+    learned_q = train_tabular_q_learning(
+        test_states,
+        test_target,
+        np.random.default_rng(42),
+        num_episodes=10000,
+        max_steps_per_episode=60,
+        gamma=1.0, alpha=0.5,
+    )
 
 # %%
 
-exact_distances = distances_from(test_target)
+if __name__ == "__main__":
+    exact_distances = distances_from(test_target)
 
-expected_keys = {
-    (state, action)
-    for state in test_states - {test_target}
-    for action in legal_actions(state)
-}
+    expected_keys = {
+        (state, action)
+        for state in test_states - {test_target}
+        for action in legal_actions(state)
+    }
 
-assert set(learned_q) == expected_keys
+    assert set(learned_q) == expected_keys
 
-q_errors_arr = np.array([
-    abs(
-        learned_q[state, action] 
-        + 1
-        + exact_distances[transition(state, action)]
-    )
-    for state, action in expected_keys
-])
+    q_errors_arr = np.array([
+        abs(
+            learned_q[state, action]
+            + 1
+            + exact_distances[transition(state, action)]
+        )
+        for state, action in expected_keys
+    ])
 
-max_q_error = q_errors_arr.max()
-mean_q_error = q_errors_arr.mean()
+    max_q_error = q_errors_arr.max()
+    mean_q_error = q_errors_arr.mean()
 
-# assert max_q_error < 1e-8, max_q_error
+    # assert max_q_error < 1e-8, max_q_error
 
-learned_q_arr = np.array(list(learned_q.values()))
-non_zero_elements_number = (learned_q_arr != 0.0).sum()
+    learned_q_arr = np.array(list(learned_q.values()))
+    non_zero_elements_number = (learned_q_arr != 0.0).sum()
 
 print(
     f"3x3: {len(learned_q)} Q-values checked\n",
@@ -942,16 +1133,16 @@ def check_greedy_q_path(
 
     return "solved", steps
 
-
-q_check_start = next(state for state, distance in exact_distances.items() if distance == 2)
-q_check_status, q_check_steps = check_greedy_q_path(
-    q_check_start, test_target, learned_q, trace_distances=exact_distances,
-)
-print(f"Greedy Q-policy: {q_check_status}, moves = {q_check_steps}, optimal = 2")
-if q_check_status == "solved":
-    q_check_gap = q_check_steps - exact_distances[q_check_start]
-    assert q_check_gap >= 0
-    print(f"Optimality gap = {q_check_gap}")
+if __name__ == "__main__":
+    q_check_start = next(state for state, distance in exact_distances.items() if distance == 2)
+    q_check_status, q_check_steps = check_greedy_q_path(
+        q_check_start, test_target, learned_q, trace_distances=exact_distances,
+    )
+    print(f"Greedy Q-policy: {q_check_status}, moves = {q_check_steps}, optimal = 2")
+    if q_check_status == "solved":
+        q_check_gap = q_check_steps - exact_distances[q_check_start]
+        assert q_check_gap >= 0
+        print(f"Optimality gap = {q_check_gap}")
 
 # %%
 # Быстрые проверки механики: ошибка обучения на 3×3 не должна скрывать баг обновления.
@@ -1005,3 +1196,98 @@ def validate_q_learning() -> None:
     print("Q-learning validation passed: update, terminal handling, exact values, policy, training.")
 
 validate_q_learning()
+# %%
+def validate_fast_q_learning_cust() -> None:
+    """The optimization must preserve the reference learner on controlled experiments."""
+    small_target = goal(2)
+    small_states = explore(small_target, neighbors)
+    for discount, learning_rate in ((1.0, 0.5), (0.9, 0.3), (0.0, 1.0)):
+        reference_q = train_tabular_q_learning_reference(
+            small_states, small_target, np.random.default_rng(42), 100, 30,
+            gamma=discount, alpha=learning_rate,
+        )
+        fast_q = train_tabular_q_learning(
+            small_states, small_target, np.random.default_rng(42), 100, 30,
+            gamma=discount, alpha=learning_rate,
+        )
+        assert fast_q == reference_q
+    single_start = [transition(small_target, Action.LEFT)]
+    reference_q = train_tabular_q_learning_reference(
+        small_states, small_target, np.random.default_rng(7), 100, 1,
+        start_states=single_start,
+    )
+    fast_q = train_tabular_q_learning(
+        small_states, small_target, np.random.default_rng(7), 100, 1,
+        start_states=single_start,
+    )
+    assert fast_q == reference_q
+    print("Fast/reference Q-learning parity passed.")
+# %%
+start_states: set[Board] = set()
+start_bord = goal(3)
+first_layer_states = neighbors(start_bord)
+for state1 in first_layer_states:
+    second_layer_states = neighbors(state1)
+    for state2 in second_layer_states:
+        start_states.add(state2)
+    start_states.add(state1)
+
+start_states_list = sorted(start_states - {start_bord})
+
+print(start_states_list, len(start_states_list))
+
+# %%
+
+test_target = goal(3)
+
+test_states = explore(
+    test_target,
+    neighbors
+)
+
+learned_q = train_tabular_q_learning(
+    test_states,
+    test_target,
+    np.random.default_rng(42),
+    num_episodes=10000,
+    max_steps_per_episode=60,
+    start_states=start_states_list,
+    gamma=1.0, alpha=0.5,
+)
+
+# %%
+
+exact_distances = distances_from(test_target)
+
+expected_keys = {
+    (state, action)
+    for state in test_states - {test_target}
+    for action in legal_actions(state)
+}
+
+assert set(learned_q) == expected_keys
+
+q_errors_arr = np.array([
+    abs(
+        learned_q[state, action]
+        + 1
+        + exact_distances[transition(state, action)]
+    )
+    for state, action in expected_keys
+])
+
+max_q_error = q_errors_arr.max()
+mean_q_error = q_errors_arr.mean()
+
+# assert max_q_error < 1e-8, max_q_error
+
+learned_q_arr = np.array(list(learned_q.values()))
+non_zero_elements_number = (learned_q_arr != 0.0).sum()
+
+print(
+    f"3x3: {len(learned_q)} Q-values checked\n",
+    f"max error = {max_q_error:.3g}\n",
+    f"mean error = {mean_q_error}\n",
+    f"number of updated state-action pairs = {non_zero_elements_number}", sep = ''
+)
+# %% 
