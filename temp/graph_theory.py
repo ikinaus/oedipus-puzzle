@@ -716,7 +716,7 @@ def bellman_residual(
         s_slash = transition(s, a)
 
         if s_slash == target:
-            y = -1
+            y = -1.0
         else:
             q_val_max = max(
                 q_values[(s_slash, a_slash)]
@@ -899,7 +899,7 @@ print(
     f"3x3: {len(learned_q)} Q-values checked\n",
     f"max error = {max_q_error:.3g}\n",
     f"mean error = {mean_q_error}\n",
-    f"number of non zero states = {non_zero_elements_number}", sep = ''
+    f"number of updated state-action pairs = {non_zero_elements_number}", sep = ''
 )
 # %%
 # Проверяем поведение: фиксированная Q-table, без обучения и случайного выбора.
@@ -908,18 +908,35 @@ def check_greedy_q_path(
     target: Board,
     q: dict[tuple[Board, Action], float],
     max_steps: int = 100,
+    *,
+    trace_distances: dict[Board, int] | None = None,
 ) -> tuple[str, int]:
-    visited: set[Board] = set()
+    """Evaluate fixed Q; optional BFS distances explain choices at gamma=1."""
+    visited: dict[Board, int] = {}
     state = start
     steps = 0
 
     while state != target:
         if state in visited:
+            if trace_distances is not None:
+                print(f"Returned to step {visited[state]}; cycle length = {steps - visited[state]}")
             return "cycle", steps
         if steps >= max_steps:
             return "limit", steps
-        visited.add(state)
+        visited[state] = steps
         action = max(legal_actions(state), key=lambda a: q[state, a])
+        if trace_distances is not None:
+            print(f"\nStep {steps}, distance to goal = {trace_distances[state]}")
+            for row in state:
+                print(" ".join("." if tile == 0 else str(tile) for tile in row))
+            for candidate in legal_actions(state):
+                successor = transition(state, candidate)
+                exact_q = -1 - trace_distances[successor]
+                marker = " <-- chosen" if candidate == action else ""
+                print(
+                    f"  {candidate.name:5}: Q = {q[state, candidate]:.6f}, "
+                    f"Q* = {exact_q}, next distance = {trace_distances[successor]}{marker}"
+                )
         state = transition(state, action)
         steps += 1
 
@@ -927,9 +944,64 @@ def check_greedy_q_path(
 
 
 q_check_start = next(state for state, distance in exact_distances.items() if distance == 2)
-q_check_status, q_check_steps = check_greedy_q_path(q_check_start, test_target, learned_q)
+q_check_status, q_check_steps = check_greedy_q_path(
+    q_check_start, test_target, learned_q, trace_distances=exact_distances,
+)
 print(f"Greedy Q-policy: {q_check_status}, moves = {q_check_steps}, optimal = 2")
 if q_check_status == "solved":
     q_check_gap = q_check_steps - exact_distances[q_check_start]
     assert q_check_gap >= 0
     print(f"Optimality gap = {q_check_gap}")
+
+# %%
+# Быстрые проверки механики: ошибка обучения на 3×3 не должна скрывать баг обновления.
+def validate_q_learning() -> None:
+    validation_target = goal(2)
+    validation_distances = distances_from(validation_target)
+    validation_states = set(validation_distances)
+    near_goal = transition(validation_target, Action.LEFT)
+
+    # Последний ход не читает Q цели и исправляет ровно одну запись.
+    terminal_q = {(near_goal, Action.RIGHT): 0.0}
+    assert q_update(terminal_q, near_goal, Action.RIGHT, validation_target, True) == -1.0
+    assert terminal_q == {(near_goal, Action.RIGHT): -0.5}
+
+    # Нет терминальности: учитываем продолжение даже при остановке по лимиту шагов.
+    before_near = transition(near_goal, Action.UP)
+    sample_q = {(near_goal, a): -5.0 for a in legal_actions(near_goal)}
+    sample_q[near_goal, Action.RIGHT] = -3.0
+    sample_q[before_near, Action.DOWN] = -2.0
+    expected_q = sample_q.copy()
+    td_error = q_update(sample_q, before_near, Action.DOWN, near_goal, False, 0.9, 0.5)
+    expected_q[before_near, Action.DOWN] = -2.85
+    assert np.isclose(td_error, -1.7)
+    assert all(np.isclose(sample_q[key], value) for key, value in expected_q.items())
+
+    # Связка V -> Q -> политика проверяется независимо по расстояниям BFS.
+    validation_values = value_iteration(validation_states, validation_target)
+    exact_q = q_values_from_state_values(
+        validation_states, validation_target, validation_values,
+    )
+    assert bellman_residual(exact_q, validation_target) == 0.0
+    for (state, action), value in exact_q.items():
+        assert value == -1 - validation_distances[transition(state, action)]
+    for state, distance in validation_distances.items():
+        assert check_greedy_q_path(state, validation_target, exact_q) == ("solved", distance)
+    assert check_greedy_q_path(near_goal, validation_target, exact_q, 0) == ("limit", 0)
+    assert check_greedy_q_path(near_goal, validation_target, exact_q, 1) == ("solved", 1)
+
+    validation_q = train_tabular_q_learning(
+        validation_states, validation_target, np.random.default_rng(42), 2000, 30,
+    )
+    assert validation_q.keys() == exact_q.keys()
+    assert max(abs(validation_q[key] - value) for key, value in exact_q.items()) < 1e-8
+
+    # gamma/alpha действительно доходят из цикла до q_update.
+    one_step_q = train_tabular_q_learning(
+        validation_states, validation_target, np.random.default_rng(42), 30, 10,
+        gamma=0.0, alpha=1.0,
+    )
+    assert set(one_step_q.values()) <= {0.0, -1.0}
+    print("Q-learning validation passed: update, terminal handling, exact values, policy, training.")
+
+validate_q_learning()
